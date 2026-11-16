@@ -1,566 +1,472 @@
-# SQL Server Database Replication Guide: Transactional Replication
+# Panduan Lengkap Implementasi & Arsitektur Microsoft SQL Server Database Mirroring
 
-A comprehensive, step-by-step technical guide for configuring **SQL Server Database Replication** using the **Publisher**, **Distributor**, and **Subscriber** architecture.
-
----
-
-## Table of Contents
-
-- [1. Overview of SQL Server Replication](#1-overview-of-sql-server-replication)
-  - [1.1 What is SQL Server Replication?](#11-what-is-sql-server-replication)
-  - [1.2 Core Roles: Publisher, Distributor, and Subscriber](#12-core-roles-publisher-distributor-and-subscriber)
-  - [1.3 Types of SQL Server Replication](#13-types-of-sql-server-replication)
-  - [1.4 When to Use SQL Server Replication](#14-when-to-use-sql-server-replication)
-- [2. System Architecture](#2-system-architecture)
-  - [2.1 Architecture Diagram](#21-architecture-diagram)
-  - [2.2 Data Flow Explanation](#22-data-flow-explanation)
-- [3. Prerequisites and Pre-Configuration](#3-prerequisites-and-pre-configuration)
-  - [3.1 Hostname and Server Name Resolution](#31-hostname-and-server-name-resolution)
-  - [3.2 SQL Server Agent and Network Ports](#32-sql-server-agent-and-network-ports)
-- [4. Step-by-Step Technical Implementation](#4-step-by-step-technical-implementation)
-  - [4.1 SQL Server Installation with Replication Feature](#41-sql-server-installation-with-replication-feature)
-  - [4.2 Verifying Services, Instances, and Ports](#42-verifying-services-instances-and-ports)
-  - [4.3 Configuring the Distributor Node](#43-configuring-the-distributor-node)
-  - [4.4 Creating the Publication on the Publisher](#44-creating-the-publication-on-the-publisher)
-  - [4.5 Configuring the Subscriber and Subscriptions](#45-configuring-the-subscriber-and-subscriptions)
-  - [4.6 Verifying Replication Status and Synchronized Data](#46-verifying-replication-status-and-synchronized-data)
-- [5. Monitoring and Best Practices](#5-monitoring-and-best-practices)
-  - [5.1 Using Replication Monitor](#51-using-replication-monitor)
-  - [5.2 Operational Best Practices](#52-operational-best-practices)
+Dokumen ini menyajikan panduan komprehensif mengenai implementasi **Microsoft SQL Server Database Mirroring**, mencakup konsep dasar (*Principal*, *Mirror*, *Witness*, dan *Failover*), arsitektur sistem, langkah-langkah implementasi teknis berbasis bukti visual (*step-by-step evidence*), verifikasi data menggunakan *Database Snapshot*, prosedur pengujian *failover*, hingga panduan *troubleshooting* penanganan kendala umum.
 
 ---
 
-## 1. Overview of SQL Server Replication
-
-### 1.1 What is SQL Server Replication?
-
-**SQL Server Replication** is a built-in technology in Microsoft SQL Server that allows you to copy and distribute data and database objects from one database to another, and synchronize between databases to maintain data consistency.
-
-Think of it like a magazine publishing company:
-- A publisher prints articles.
-- A distributor packages and routes the magazines.
-- Subscribers receive and read the magazines at their homes.
-
-Replication allows data to be copied automatically across different servers, locations, or cloud instances without manual export and import operations.
+## Daftar Isi
+- [1. Pengenalan SQL Server Database Mirroring](#1-pengenalan-sql-server-database-mirroring)
+  - [1.1 Konsep Dasar dan Prinsip Kerja](#11-konsep-dasar-dan-prinsip-kerja)
+  - [1.2 Peran Utama: Principal, Mirror, dan Witness](#12-peran-utama-principal-mirror-dan-witness)
+  - [1.3 Mode Operasi dan Mekanisme Failover](#13-mode-operasi-dan-mekanisme-failover)
+- [2. Arsitektur Solusi](#2-arsitektur-solusi)
+  - [2.1 Diagram Topologi Database Mirroring](#21-diagram-topologi-database-mirroring)
+  - [2.2 Alur Komunikasi dan Failover Otomatis/Manual](#22-alur-komunikasi-dan-failover-otomatismanual)
+- [3. Prasyarat & Lingkungan Pengujian](#3-prasyarat--lingkungan-pengujian)
+  - [3.1 Spesifikasi Server & Port Jaringan](#31-spesifikasi-server--port-jaringan)
+  - [3.2 Ketentuan Database & Recovery Model](#32-ketentuan-database--recovery-model)
+- [4. Langkah-Langkah Konfigurasi Teknis & Bukti Implementasi](#4-langkah-langkah-konfigurasi-teknis--bukti-implementasi)
+  - [4.1 Tahap 1: Persiapan dan Backup Database di Server Principal](#41-tahap-1-persiapan-dan-backup-database-di-server-principal)
+  - [4.2 Tahap 2: Restore Database di Server Mirror dengan Status NORECOVERY](#42-tahap-2-restore-database-di-server-mirror-dengan-status-norecovery)
+  - [4.3 Tahap 3: Konfigurasi Endpoint dan Keamanan Mirroring](#43-tahap-3-konfigurasi-endpoint-dan-keamanan-mirroring)
+  - [4.4 Tahap 4: Inisialisasi Mirroring dan Verifikasi Status Sinkronisasi](#44-tahap-4-inisialisasi-mirroring-dan-verifikasi-status-sinkronisasi)
+  - [4.5 Tahap 5: Verifikasi Integritas Data Menggunakan Database Snapshot](#45-tahap-5-verifikasi-integritas-data-menggunakan-database-snapshot)
+  - [4.6 Tahap 6: Pengujian Failover (Manual Failover Test)](#46-tahap-6-pengujian-failover-manual-failover-test)
+- [5. Panduan Pemecahan Masalah (Troubleshooting)](#5-panduan-pemecahan-masalah-troubleshooting)
+  - [5.1 Penanganan Port Endpoint Tidak Listening atau Terjadi Konflik](#51-penanganan-port-endpoint-tidak-listening-atau-terjadi-konflik)
+  - [5.2 Mengatasi Database Terkunci di Sisi Mirror (Drop & Restore Ulang)](#52-mengatasi-database-terkunci-di-sisi-mirror-drop--restore-ulang)
+  - [5.3 Pemberian Hak Akses (Grant Connect) pada Service Account SQL Server](#53-pemberian-hak-akses-grant-connect-pada-service-account-sql-server)
+  - [5.4 Mengatasi Error 1418 (Host Endpoint Unreachable / Registrasi Dua Arah)](#54-mengatasi-error-1418-host-endpoint-unreachable--registrasi-dua-arah)
+- [6. Kesimpulan dan Best Practices](#6-kesimpulan-dan-best-practices)
 
 ---
 
-### 1.2 Core Roles: Publisher, Distributor, and Subscriber
+## 1. Pengenalan SQL Server Database Mirroring
 
-SQL Server replication is built on three fundamental roles:
+### 1.1 Konsep Dasar dan Prinsip Kerja
+**Database Mirroring** adalah solusi ketersediaan tinggi (*High Availability / HA*) dan pemulihan bencana (*Disaster Recovery / DR*) tingkat basis data yang disediakan oleh Microsoft SQL Server. Berbeda dengan *Failover Clustering Instances (FCI)* yang beroperasi pada tingkat *instance* dengan penyimpanan bersama (*shared storage*), Database Mirroring bekerja per basis data (*database-level*) dan tidak memerlukan infrastruktur penyimpanan khusus (*shared disk*).
+
+Prinsip kerja Database Mirroring bertumpu pada pengiriman *transaction log record* secara terus-menerus dari basis data utama ke basis data pencerminan (*mirror*), di mana log tersebut langsung diterapkan (*redone*) secara sekuensial.
 
 ```
-+----------------+      Transactions      +------------------+     Replicated Data    +-----------------+
-|   Publisher    | ---------------------> |   Distributor    | ---------------------> |   Subscriber    |
-| (Source / OLTP)|                        | (Queue & Engine) |                        | (Target / Read) |
-+----------------+                        +------------------+                        +-----------------+
++------------------+     Log Records Transferred     +------------------+
+|  Principal DB    | ==============================> |    Mirror DB     |
+| (Read/Write OK)  |        via TCP Endpoint         | (Restoring State)|
++------------------+                                 +------------------+
 ```
 
-#### 1. The Publisher (The Source)
-- **Role**: The source database instance that makes data available for replication.
-- **Responsibilities**:
-  - Defines the **Publication** (the collection of tables, views, and stored procedures to replicate).
-  - Each item replicated is called an **Article**.
-  - Tracks data changes (insert, update, delete) occurring on the published articles.
+### 1.2 Peran Utama: Principal, Mirror, dan Witness
+Dalam sesi Database Mirroring, terdapat tiga peran server (*server roles*):
+1. **Principal Server (Primary)**:
+   - Server yang melayani basis data aktif (*source database*).
+   - Menerima koneksi baca dan tulis (*read-write transactions*) dari aplikasi klien.
+   - Menghasilkan dan mengirimkan *transaction log records* ke Mirror Server.
+2. **Mirror Server (Slave / Standby)**:
+   - Server yang menyimpan salinan basis data (*target database*).
+   - Basis data di sisi Mirror selalu berada dalam status `RESTORING` sehingga tidak dapat diakses secara langsung oleh aplikasi untuk operasi baca/tulis normal.
+   - Mengaplikasikan *transaction log records* yang dikirim dari Principal untuk menjaga konsistensi data.
+3. **Witness Server (Opsional)**:
+   - Server pihak ketiga (*independent instance*) yang bertugas memantau ketersediaan Principal Server dan Mirror Server.
+   - Diperlukan hanya jika menginginkan **Automatic Failover** (mode *High Safety with Automatic Failover*).
+   - Witness membentuk kuorum (*quorum*) untuk memutuskan pengalihan peran secara otomatis apabila Principal Server mati (*unresponsive*).
 
-#### 2. The Distributor (The Intermediary / Queue)
-- **Role**: The store-and-forward server that acts as the messaging broker between the Publisher and Subscriber.
-- **Responsibilities**:
-  - Hosts the special system database named `distribution`.
-  - Holds transactions and snapshot files temporarily in queue before delivering them to subscribers.
-  - Hosts replication background services (agents):
-    - **Snapshot Agent**: Prepares schema and initial dataset.
-    - **Log Reader Agent**: Monitors transaction logs of the publisher and moves changes to the distribution database.
-    - **Distribution Agent**: Moves data from the distribution database to subscribers.
-- **Deployment Models**:
-  - *Local Distributor*: Runs on the same instance/server as the Publisher (simpler, uses fewer servers).
-  - *Remote Distributor*: Runs on a dedicated server (reduces CPU/disk load on the production Publisher).
-
-#### 3. The Subscriber (The Destination)
-- **Role**: The target database instance that receives the replicated data.
-- **Responsibilities**:
-  - Subscribes to a publication to receive continuous data updates.
-  - Houses the subscriber database where applications can read or query data.
-  - Operates as either:
-    - **Push Subscription**: The Distributor pushes changes directly to the Subscriber (managed at the Distributor).
-    - **Pull Subscription**: The Subscriber periodically requests changes from the Distributor (reduces Distributor load).
+### 1.3 Mode Operasi dan Mekanisme Failover
+Database Mirroring mendukung dua mode operasi utama:
+1. **High Safety (Synchronous)**:
+   - Transaksi di Principal tidak dianggap *committed* sampai *transaction log record* berhasil ditulis ke disk di sisi Mirror Server.
+   - Menjamin **Zero Data Loss** (RPO = 0).
+   - Memiliki dua sub-opsi:
+     - *With Automatic Failover*: Memerlukan Witness server. Jika Principal mati, Mirror otomatis menjadi Principal.
+     - *Without Automatic Failover (Manual Failover)*: Tanpa Witness server. Pergantian peran dilakukan secara manual oleh administrator (*planned maintenance*).
+2. **High Performance (Asynchronous)**:
+   - Transaksi langsung di-*commit* di Principal tanpa menunggu konfirmasi dari Mirror Server.
+   - Kinerja transaksi sangat tinggi dan latensi rendah, namun terdapat potensi kehilangan data (*data loss*) jika terjadi kegagalan mendadak pada Principal (RPO > 0). Hanya mendukung *forced service failover*.
 
 ---
 
-### 1.3 Types of SQL Server Replication
+## 2. Arsitektur Solusi
 
-| Replication Type | How It Works | Typical Use Case |
+### 2.1 Diagram Topologi Database Mirroring
+Arsitektur Database Mirroring menghubungkan aplikasi klien ke Principal Server, dengan aliran replikasi data ke Mirror Server serta mekanisme *failover*:
+
+![Arsitektur Microsoft SQL Server Database Mirroring](design/architecture.png)
+
+### 2.2 Alur Komunikasi dan Failover Otomatis/Manual
+1. **Alur Transaksi Normal**:
+   - Aplikasi klien (*Client Computer*) mengarahkan koneksi ke **Primary Database (Port 1433)**.
+   - Setiap transaksi data (*INSERT, UPDATE, DELETE*) dicatat dalam *transaction log*.
+   - Principal Server mengirimkan aliran *transaction log* melalui *dedicated TCP endpoint* (misal port 5022) ke Mirror Server (port 5023).
+   - **Slave Database (Port 1434)** secara terus-menerus mengaplikasikan log tersebut ke basis data pencerminan.
+2. **Mekanisme Failover**:
+   - Apabila Principal Server mengalami kegagalan (*server crash, network partitioning, maintenance*), sistem *failover* diaktifkan.
+   - Pada **Manual Failover** (tanpa Witness), administrator mengeksekusi perintah *failover* dari SSMS atau T-SQL.
+   - Slave Database segera keluar dari status `RESTORING`, menyelesaikan transaksi aktif, dan beralih peran menjadi **Principal Database** baru.
+   - Aplikasi klien yang dikonfigurasi dengan parameter `Failover Partner` pada *connection string* akan secara otomatis mengarahkan koneksi ke server baru tanpa intervensi kode aplikasi.
+
+---
+
+## 3. Prasyarat & Lingkungan Pengujian
+
+### 3.1 Spesifikasi Server & Port Jaringan
+Dalam skenario implementasi ini, pengujian dilakukan pada lingkungan lokal menggunakan multi-instance Microsoft SQL Server:
+
+| Komponen | Sisi Principal (Primary) | Sisi Mirror (Slave) |
 | :--- | :--- | :--- |
-| **Snapshot Replication** | Takes a complete snapshot of data and schema at a specific point in time and replaces the destination data. | Small reference tables, infrequently changed lookup data. |
-| **Transactional Replication** | Captures changes row-by-row in near real-time from the active transaction log and delivers them in order. | High-throughput OLTP systems, read-replica reporting, data warehousing. |
-| **Merge Replication** | Allows changes to happen on both Publisher and Subscriber simultaneously and resolves conflicts automatically or by rule. | Mobile or offline branch offices synchronizing periodically. |
+| **Instance Name** | `MSSQLSERVERMST` / `Localhost,1433` | `Localhost,1434` |
+| **Versi SQL Server** | SQL Server 17.0.1155.3 | SQL Server 17.0.1155.3 |
+| **Port Service SQL** | `1433` | `1434` |
+| **Port Endpoint Mirroring** | `5022` | `5023` |
+| **Nama Endpoint** | `Mirroring` | `Mirroring` |
+| **Direktori Data** | Direktori default SQL Server | `D:\restore-db-sql-server\` (Relocated) |
+| **Direktori Backup** | `D:\backup-db-sql-server\` | `D:\backup-db-sql-server\` |
+| **Direktori Snapshot** | - | `D:\snapshoot\` |
 
-*This guide demonstrates **Transactional Replication**.*
-
----
-
-### 1.4 When to Use SQL Server Replication
-
-SQL Server Replication is ideal for the following real-world scenarios:
-
-1. **Offloading Reporting and Analytical Queries (Read-Write Separation)**:
-   - Primary OLTP databases must process customer transactions with low latency.
-   - Long-running analytics or reporting queries can lock tables and degrade production performance.
-   - *Solution*: Replicate transaction data to a secondary Subscriber database and direct all BI and reporting queries there.
-
-2. **Geographical Data Distribution**:
-   - Multi-branch businesses (e.g., retail chains, regional clinics, bank branches) require local low-latency access to master catalog data.
-   - *Solution*: Replicate central catalog data to branch subscribers.
-
-3. **Data Warehousing and Staging Feeds (ETL)**:
-   - Continuously stream fresh operational changes to an intermediate staging server for ETL transformation without impacting production tables.
-
-4. **High Availability and Disaster Recovery Preparation**:
-   - Keep a warm secondary copy of critical tables updated in near real-time across data centers or cloud instances.
+### 3.2 Ketentuan Database & Recovery Model
+- **Full Recovery Model**: Basis data yang akan di-mirror wajib menggunakan *Recovery Model = FULL*. Model *Simple* atau *Bulk-Logged* tidak didukung.
+- **Inisialisasi Identik**: Basis data di sisi Mirror harus di-*restore* dari *Full Backup* dan *Log Backup* terakhir dari Principal menggunakan opsi `WITH NORECOVERY`.
+- **Kesesuaian Nama Basis Data**: Nama basis data pada Principal dan Mirror harus persis sama (`db_1`, `db_conto_dari_master`, `LatihanDB`).
 
 ---
 
-## 2. System Architecture
+## 4. Langkah-Langkah Konfigurasi Teknis & Bukti Implementasi
 
-### 2.1 Architecture Diagram
+Bagian ini mendokumentasikan tahapan konfigurasi teknis secara berurutan sesuai bukti tangkapan layar visual (*screenshot evidence*).
 
-The overall system architecture demonstrates the topology and communication flow between the Publisher node, the Distributor node, and the Subscriber node:
+### 4.1 Tahap 1: Persiapan dan Backup Database di Server Principal
 
-![SQL Server Replication Architecture](design/architecture.png)
+#### Langkah 1: Pemeriksaan Daftar Basis Data di Principal
+Pemeriksaan dilakukan pada instance Principal (`Localhost,1433`). Terlihat basis data yang akan dikonfigurasi untuk pencerminan data: `db_1`, `db_conto_dari_master`, dan `LatihanDB`.
+
+![List Database di Server Principal](ss/1-primary-list-database.png)
+
+#### Langkah 2: Memulai Operasi Backup Database
+Klik kanan pada basis data target (`db_1`) > **Tasks** > **Back Up...**.
+
+![Menu Backup Database Principal](ss/2-primary-backup-database.png)
+
+#### Langkah 3: Konfigurasi Full Backup
+Pastikan opsi berikut terpilih:
+- **Backup type**: `Full`
+- **Recovery model**: `FULL`
+- **Destination**: Arahkan ke file penyimpanan lokal, contoh: `D:\backup-db-sql-server\db_1.bak`.
+
+![Konfigurasi Parameter Backup Database](ss/3-primary-backup-database-2.png)
+
+> [!IMPORTANT]
+> Lakukan juga **Transaction Log Backup** jika setelah Full Backup terdapat transaksi berjalan, agar rantai LSN (*Log Sequence Number*) antara Principal dan Mirror sinkron sempurna.
+
+#### Langkah 4: Verifikasi File Backup Hasil Ekspor
+Pastikan file cadangan (`.bak`) untuk seluruh basis data target telah terbentuk secara utuh di folder penyimpanan:
+- `db_1.bak`
+- `db_conto_dari_master.bak`
+- `LatihaDB.bak`
+
+![File Backup Tersimpan di Disk](ss/4-primary-backup-database-hasil-bak.png)
 
 ---
 
-### 2.2 Data Flow Explanation
+### 4.2 Tahap 2: Restore Database di Server Mirror dengan Status NORECOVERY
 
-1. **Initial Baseline Synchronization**:
-   - The **Snapshot Agent** captures the table schema (`.sch`) and baseline data (`.bcp`) from the Publisher and places them into the Replication Snapshot Share directory.
-   - The **Distribution Agent** reads the snapshot and applies it to the destination database on the Subscriber.
+#### Langkah 5: Membuka Menu Restore pada Instance Mirror (Port 1434)
+Buka koneksi SQL Server Management Studio ke server Slave (`Localhost,1434`), klik kanan pada folder **Databases** > **Restore Database...**.
 
-2. **Continuous Transaction Streaming**:
-   - When client applications perform `INSERT`, `UPDATE`, or `DELETE` operations on the Publisher, the changes are recorded in the Publisher's transaction log (`.ldf`).
-   - The **Log Reader Agent** reads committed transactions from the log and copies them into the `distribution` database on the Distributor.
-   - The **Distribution Agent** reads pending transactions from the `distribution` database and executes them on the Subscriber in exact sequential order.
+![Pilih Menu Restore Database di Mirror](ss/4-slave-restore-db.png)
+
+#### Langkah 6: Pemilihan Sumber Cadangan (Backup Device)
+Pilih radio button **Device**, lalu klik tombol browse (`...`) dan arahkan ke direktori file cadangan `D:\backup-db-sql-server\`.
+
+![Memilih File Backup di Folder](ss/5-slave-restore-db-all-db.png)
+
+#### Langkah 7: Pengaturan Nama Basis Data Tujuan
+Pilih file cadangan `db_1.bak` dan tentukan nama basis data tujuan pada kolom **Database** dengan nama yang identik (`db_1`).
+
+![Pengaturan Database Tujuan Restore](ss/6-slave-restore-db-all-db-per-database.png)
+
+#### Langkah 8: Relokasi File Fisik Database (MDF & LDF)
+Masuk ke tab **Files**:
+- Centang opsi **Relocate all files to folder**.
+- Tentukan direktori penyimpanan baru pada **Data file folder**, misalnya `D:\restore-db-sql-server\`.
+- Langkah ini krusial saat kedua instance berjalan pada mesin fisik yang sama (*localhost*) agar tidak terjadi konflik penguncian file fisik dengan instance Principal.
+
+![Relokasi File Database di Sisi Slave](ss/7-slave-restore-db-all-db-per-database-setting-restore-with-recovery.png)
+
+#### Langkah 9: Pemilihan Recovery State (NORECOVERY)
+Masuk ke tab **Options**:
+- Centang opsi **Overwrite the existing database (WITH REPLACE)**.
+- Atur **Recovery state** ke **RESTORE WITH NORECOVERY**. Opsi ini memastikan basis data tetap terbuka untuk menerima aliran *transaction log* tambahan dan belum memasuki fase pemulihan (*ready state*).
+
+![Pengaturan Recovery State pada Restore Database](ss/8-slave-restore-db-all-db-per-database-setting-restore-with-recovery.png)
+
+#### Langkah 10: Notifikasi Keberhasilan Restore
+Setelah proses selesai, sistem menampilkan dialog konfirmasi bahwa basis data berhasil di-*restore*.
+
+![Notifikasi Restore Berhasil](ss/9-slave-restore-db-all-db-per-database-success.png)
+
+#### Langkah 11: Verifikasi Status Basis Data (Restoring...)
+Pada Object Explorer instance `Localhost,1434`, periksa bahwa seluruh basis data yang di-*restore* berstatus `(Restoring...)`. Ini menandakan basis data siap dijadikan partner pencerminan (*mirror partner*).
+
+![Status Restoring pada Object Explorer](ss/10-slave-restore-db-all-db-per-database-success-show-in-ssm.png)
+
+#### Langkah 12: Analisis Perbedaan Struktur File MDF dan LDF
+Struktur fisik basis data SQL Server terdiri atas dua komponen utama:
+1. **Primary Data File (`.mdf`)**: Menyimpan skema, tabel, indeks, dan data aktual.
+2. **Transaction Log File (`.ldf`)**: Menyimpan seluruh riwayat log transaksi untuk menjamin *ACID compliance* dan transmisi mirroring.
+
+![Perbedaan Properti File MDF dan LDF](ss/11-slave-restore-db-all-db-per-database-perbedaan-ldf-dan-mdf-file.png)
+
+Daftar file fisik yang telah ter-relokasi pada folder `D:\restore-db-sql-server`:
+- `db_1.mdf` & `db_1_log.ldf`
+- `db_conto_dari_master.mdf` & `db_conto_dari_master_log.ldf`
+- `LatihanDB.mdf` & `LatihanDB_log.ldf`
+
+![Daftar File MDF dan LDF di Folder Restore](ss/11-slave-restore-db-all-db-per-database-perbedaan-ldf-dan-mdf-file-2.png)
 
 ---
 
-## 3. Prerequisites and Pre-Configuration
+### 4.3 Tahap 3: Konfigurasi Endpoint dan Keamanan Mirroring
 
-### 3.1 Hostname and Server Name Resolution
+#### Langkah 13: Membuka Wizard Mirroring di Principal Server
+Kembali ke instance Principal (`Localhost,1433`), klik kanan pada basis data target (`db_1`) > **Tasks** > **Mirror...**.
 
-SQL Server Replication relies strictly on actual server names (stored in `@@SERVERNAME`), not random hostnames or dynamic container IDs.
+![Membuka Pengaturan Mirroring](ss/12-primary-set-mirror-to-slave-per-database.png)
 
-#### Checking Server Name:
-Run this query on each SQL Server instance:
+#### Langkah 14: Memulai Security Configuration Wizard
+Pada halaman properti **Mirroring**, klik tombol **Configure Security...** untuk membuka wizard konfigurasi keamanan.
+
+![Wizard Konfigurasi Keamanan Mirroring](ss/13-primary-set-mirror-to-slave-per-database-2.png)
+
+#### Langkah 15: Penentuan Witness Server
+Pada langkah **Include Witness Server**, pilih:
+- **No**: Untuk mode 2-server (*High Safety without automatic failover* atau *High Performance*).
+- **Yes**: Hanya jika tersedia server ketiga yang bertindak sebagai pemantau otomatis (*Witness*).
+
+Pada implementasi ini dipilih **No**.
+
+![Pilihan Penggunaan Witness Server](ss/13-primary-set-mirror-to-slave-per-database-3.png)
+
+#### Langkah 16: Konfigurasi Endpoint di Sisi Principal
+Konfigurasikan properti endpoint untuk Principal Server:
+- **Principal server instance**: `Localhost,1433`
+- **Listener port**: `5022`
+- **Endpoint name**: `Mirroring`
+- Centang opsi **Encrypt data sent through this endpoint** untuk menjamin keamanan transmisi log.
+
+![Konfigurasi Endpoint Principal](ss/14-primary-set-mirror-to-slave-per-database-set-listing-port-mirroring.png)
+
+#### Langkah 17: Konfigurasi Endpoint di Sisi Mirror
+Konfigurasikan properti endpoint untuk Mirror Server:
+- Klik tombol **Connect...** dan autentikasi ke instance `localhost,1434`.
+- **Listener port**: `5023` (port wajib berbeda jika berada pada satu host).
+- **Endpoint name**: `Mirroring`.
+
+![Konfigurasi Endpoint Mirror](ss/15-primary-set-mirror-to-slave-per-database-set-connet-to-server-mirroring-slave.png)
+
+#### Langkah 18: Ringkasan Tindakan Pembuatan Endpoint
+Periksa kembali konfigurasi akhir pembuatan endpoint pada kedua server sebelum eksekusi dilakukan.
+
+![Ringkasan Konfigurasi Endpoint Wizard](ss/16-primary-set-mirror-to-slave-rekap.png)
+
+#### Langkah 19: Hasil Pembentukan Endpoint Sukses
+Wizard berhasil membuat dan mengaktifkan endpoint mirroring pada kedua instance tanpa galat:
+- `Configuring endpoint on principal server (Localhost,1433)`: **Success**
+- `Configuring endpoint on mirror server (localhost,1434)`: **Success**
+
+![Status Pembentukan Endpoint Berhasil](ss/17-primary-set-mirror-to-slave-success.png)
+
+---
+
+### 4.4 Tahap 4: Inisialisasi Mirroring dan Verifikasi Status Sinkronisasi
+
+#### Langkah 20: Menginisialisasi Database Mirroring (Start Mirroring)
+Pada jendela utama properti basis data:
+- Alamat jaringan server terisi otomatis:
+  - **Principal**: `TCP://Dendie:5022`
+  - **Mirror**: `TCP://Dendie:5023`
+- **Operating mode**: `High safety without automatic failover (synchronous)`.
+- Klik tombol **Start Mirroring**.
+
+![Konfigurasi Alamat TCP dan Start Mirroring](ss/18-primary-set-mirror-to-slave-show-config-mirroring.png)
+
+#### Langkah 21: Verifikasi Status Berjalan pada Object Explorer
+Setelah mirroring aktif, amati perubahan status pada Object Explorer di kedua instance:
+- **Instance `Localhost,1433` (Principal)**:
+  - `db_1 (Principal, Synchronized)`
+  - `db_conto_dari_master (Principal, Synchronized)`
+  - `LatihanDB (Principal, Synchronized)`
+- **Instance `Localhost,1434` (Slave/Mirror)**:
+  - `db_1 (Mirror, Synchronized / Restoring...)`
+  - `db_conto_dari_master (Mirror, Synchronized / Restoring...)`
+  - `LatihanDB (Mirror, Synchronized / Restoring...)`
+
+![Status Sinkronisasi Aktif di Kedua Server](ss/19-primary-set-mirror-to-slave-show-success-running-mirrorin.png)
+
+#### Langkah 22: Pengenalan Tombol Operasional Mirroring
+Pada jendela properti Mirroring yang telah aktif, terdapat kontrol operasional:
+- **Pause**: Menjeda sementara pengiriman transaction log (berguna saat perbaikan jaringan singkat).
+- **Remove Mirroring**: Menghapus sesi mirroring secara permanen.
+- **Failover**: Memindahkan peran Principal ke Mirror secara manual.
+- **Status**: `Synchronized: the databases are fully synchronized`.
+
+![Kontrol Pause dan Failover pada Mirroring](ss/20-primary-set-mirror-to-slave-show-perbedaan-pause-dan-failover.png)
+
+---
+
+### 4.5 Tahap 5: Verifikasi Integritas Data Menggunakan Database Snapshot
+
+Basis data di sisi Mirror berada dalam status `(Mirror, Synchronized / Restoring...)`, sehingga tidak dapat dibuka langsung untuk kueri baca (*read query*). Untuk menguji apakah data dari Principal benar-benar telah tersinkronisasi ke Mirror tanpa harus melakukan *failover*, dibuatlah **Database Snapshot**.
+
+#### Langkah 23: Pembuatan Database Snapshot di Sisi Mirror
+Jalankan skrip T-SQL berikut pada instance Slave (`Localhost,1434`):
+
 ```sql
-SELECT @@SERVERNAME AS CurrentServerName, SERVERPROPERTY('ServerName') AS ActualServerProperty;
+CREATE DATABASE LatihanDB_snapshot
+ON (
+    NAME = LatihanDB,
+    FILENAME = 'D:\snapshoot\LatihanDB_snap.ss'
+)
+AS SNAPSHOT OF LatihanDB;
+GO
 ```
 
-#### Fixing Mismatched Server Names:
-If `@@SERVERNAME` does not match the actual hostname (common in virtualized, cloned, or Docker environments), update it using the system stored procedures:
+Perintah berhasil dijalankan dan basis data `LatihanDB_snapshot (Read-Only)` muncul di bawah folder **Database Snapshots**.
+
+![Pembuatan Database Snapshot](ss/21-snapshot-create-for-check-miror-data-di-database-berhasil.png)
+
+#### Langkah 24: Verifikasi Isi Data Tabel Melalui Snapshot
+Lakukan kueri data pada snapshot `LatihanDB_snapshot`:
+```sql
+SELECT * FROM LatihanDB_snapshot.dbo.Karyawan;
+```
+Data karyawan (`Budi Santoso`, `Siti Aminah`, `Ahmad Dani`, dll.) tampil secara lengkap dan valid. Hal ini membuktikan bahwa mekanisme sinkronisasi data dari Principal ke Mirror berjalan sempurna.
+
+![Hasil Kueri Data pada Database Snapshot](ss/22-snapshot-create-for-check-miror-data-di-database-berhasil.png)
+
+---
+
+### 4.6 Tahap 6: Pengujian Failover (Manual Failover Test)
+
+#### Langkah 25: Eksekusi Failover Manual
+Pada jendela Database Properties basis data `LatihanDB` di sisi Principal, klik tombol **Failover**.
+- Sebelum failover: Principal = `TCP://Dendie:5022`, Mirror = `TCP://Dendie:5023`.
+- Setelah failover: Peran bertukar secara instan: Principal = `TCP://Dendie:5023`, Mirror = `TCP://Dendie:5022`.
+
+![Perbandingan Konfigurasi Sebelum dan Sesudah Failover](ss/23-failover-test.png)
+
+#### Langkah 26: Hasil Pertukaran Peran pada Object Explorer
+Amati perubahan peran basis data pada Object Explorer:
+- Pada `Localhost,1434` (sebelumnya Slave): basis data `LatihanDB` kini berstatus `(Principal, Synchronized)`.
+- Pada `Localhost,1433` (sebelumnya Master): basis data `LatihanDB` kini berstatus `(Mirror, Synchronized / Restoring...)`.
+- Basis data lainnya (`db_1` dan `db_conto_dari_master`) tetap berada pada peran semula. Bukti ini menegaskan bahwa Database Mirroring bekerja independen per basis data (*database-level high availability*).
+
+![Pertukaran Peran Instance Pasca Failover](ss/23-failover-test-2.png)
+
+---
+
+## 5. Panduan Pemecahan Masalah (Troubleshooting)
+
+Selama pengoperasian dan konfigurasi Database Mirroring, beberapa kendala teknis dapat terjadi. Berikut adalah panduan pemecahan masalah beserta skrip solusinya:
+
+### 5.1 Penanganan Port Endpoint Tidak Listening atau Terjadi Konflik
+Jika endpoint tidak merespons atau terjadi konflik pada port 5023:
 
 ```sql
--- Step 1: Remove old server name registration
-EXEC sp_dropserver 'OLD_SERVER_NAME';
+USE master;
 GO
 
--- Step 2: Register new server name as local
-EXEC sp_addserver 'NEW_SERVER_NAME', 'local';
+-- 1. Hapus endpoint lama jika ada konflik konfigurasi
+IF EXISTS (SELECT * FROM sys.database_mirroring_endpoints WHERE name = 'Mirroring')
+    DROP ENDPOINT Mirroring;
+GO
+
+-- 2. Buat ulang endpoint khusus port 5023
+CREATE ENDPOINT Mirroring
+    STATE = STARTED
+    AS TCP (LISTENER_PORT = 5023)
+    FOR DATABASE_MIRRORING (
+        ROLE = PARTNER,
+        AUTHENTICATION = WINDOWS NEGOTIATE
+    );
 GO
 ```
-> **Important**: Restart the SQL Server service after running this script for the new name to take effect.
+
+Lakukan uji konektivitas port melalui PowerShell:
+```powershell
+Test-NetConnection localhost -Port 5023
+```
+Pastikan keluaran menghasilkan `TcpTestSucceeded : True`.
+
+![Troubleshooting Port Endpoint dan Uji Koneksi](ss/27-primary-set-mirror-to-slave-troubleshoot-if-port-server-listening-mirroring-not-open.png)
 
 ---
 
-### 3.2 SQL Server Agent and Network Ports
+### 5.2 Mengatasi Database Terkunci di Sisi Mirror (Drop & Restore Ulang)
+Jika konfigurasi mirroring gagal dan basis data di sisi Slave terkunci (*in-use / restoring state*) sehingga tidak bisa dihapus melalui GUI SSMS:
 
-Replication requires active background services and network connectivity:
-1. **SQL Server Agent Service**: Must be configured to **Automatic** startup and currently running on all participating nodes.
-2. **TCP/IP Protocol**: Must be enabled in SQL Server Configuration Manager.
-3. **Firewall / Port Configuration**:
-   - Default SQL Server instance: TCP Port `1433`.
-   - Named instances: Ensure static TCP ports are assigned and reachable between nodes.
-   - File Share (SMB): TCP Port `445` accessible for the Replication Snapshot folder.
+1. Putuskan hubungan partner mirroring terlebih dahulu pada instance port 1434:
+   ```sql
+   USE master;
+   ALTER DATABASE db_1 SET PARTNER OFF;
+   ```
+2. Hapus basis data yang bermasalah:
+   ```sql
+   DROP DATABASE db_1;
+   ```
+3. Lakukan restore ulang file backup `db_1.bak` dengan opsi `RESTORE WITH NORECOVERY`.
 
----
-
-## 4. Step-by-Step Technical Implementation
-
-Below is the complete step-by-step technical implementation based on the sequential screenshots in the `ss/` directory.
-
----
-
-### 4.1 SQL Server Installation with Replication Feature
-
-#### Step 1: Launch SQL Server Setup
-Start the SQL Server Installation Center from the installation media or ISO.
-
-![Step 1: SQL Server Setup](ss/1-instalasi.png)
-*Figure 4.1.1: SQL Server Installation Center landing page.*
+![Troubleshooting Database Terkunci dan Drop Database](ss/28-primary-set-mirror-to-slave-troubleshoot-delete-database-in-salve-krn-proses-db-terkunci.png)
 
 ---
 
-#### Step 2: Choose New Stand-alone Installation
-Under the **Installation** menu on the left, select **New SQL Server stand-alone installation or add features to an existing installation**.
+### 5.3 Pemberian Hak Akses (Grant Connect) pada Service Account SQL Server
+Jika koneksi endpoint gagal karena masalah autentikasi Windows antar service account SQL Server:
 
-![Step 2: Choose New Installation](ss/2-instalasi-choose-new-instalastion.png)
-*Figure 4.1.2: Selecting new stand-alone installation.*
+1. Jalankan perintah berikut pada **Server Principal (Port 1433)**:
+   ```sql
+   USE master;
+   GO
+   -- Memberikan izin connect endpoint ke public / service account
+   GRANT CONNECT ON ENDPOINT::Mirroring TO PUBLIC;
+   GO
+   ```
+2. Jalankan perintah yang sama pada **Server Mirror (Port 1434)**:
+   ```sql
+   USE master;
+   GO
+   GRANT CONNECT ON ENDPOINT::Mirroring TO PUBLIC;
+   GO
+   ```
 
----
-
-#### Step 3: Select Product Edition
-Select the appropriate edition (e.g., Developer or Evaluation edition for non-production/testing environments) and click **Next**.
-
-![Step 3: Choose Edition](ss/3-instalasi-choose-evaluation.png)
-*Figure 4.1.3: Product Key and Edition selection.*
-
----
-
-#### Step 4: Enable SQL Server Replication Feature
-In the **Feature Selection** step, check **Database Engine Services** and ensure **SQL Server Replication** is selected.
-
-> **Crucial Requirement**: The replication components will not be installed if this checkbox is left unchecked.
-
-![Step 4: Select Replication Feature](ss/4-instalasi-pilih-feature-replikasi.png)
-*Figure 4.1.4: Enabling SQL Server Replication in Feature Selection.*
+![Pemberian Izin Connect pada Endpoint Mirroring](ss/29-primary-set-mirror-to-slave-troubleshoot-grant-access-connet-to-service-account-sql-server.png)
 
 ---
 
-#### Step 5: Configure Instance Name
-Specify whether to install as the Default instance (`MSSQLSERVER`) or a Named instance (e.g., `DISTRIBUTOR` or `SUBSCRIBER`).
+### 5.4 Mengatasi Error 1418 (Host Endpoint Unreachable / Registrasi Dua Arah)
+Pesan galat **Error 1418** (*"The server network address 'TCP://Dendie:5023' can not be reached or does not exist"*) sering terjadi saat memulai sesi mirroring. Penyebab utamanya adalah endpoint belum siap menerima koneksi masuk (*inbound connection*) atau nama host belum selaras di kedua sisi.
 
-![Step 5: Instance Configuration](ss/5-instalasi.png)
-*Figure 4.1.5: Specifying SQL Server instance name and instance ID.*
+Solusi penyelarasan endpoint dua arah:
 
----
+1. Buka kueri pada **Server Mirror (Port 1434)**:
+   ```sql
+   ALTER ENDPOINT Mirroring
+   STATE = STARTED
+   AS TCP (LISTENER_PORT = 5023)
+   FOR DATABASE_MIRRORING (
+       ROLE = PARTNER,
+       AUTHENTICATION = WINDOWS NEGOTIATE
+   );
+   ```
+2. Buka kueri pada **Server Principal (Port 1433)**:
+   ```sql
+   ALTER ENDPOINT Mirroring
+   STATE = STARTED
+   AS TCP (LISTENER_PORT = 5022)
+   FOR DATABASE_MIRRORING (
+       ROLE = PARTNER,
+       AUTHENTICATION = WINDOWS NEGOTIATE
+   );
+   ```
 
-#### Step 6: Configure Authentication Mode
-In the **Database Engine Configuration** step, select **Mixed Mode (SQL Server authentication and Windows authentication)** and assign a secure password for the `sa` account. Add the current user as a SQL Server Administrator.
-
-![Step 6: Database Engine Authentication](ss/6-instalasi-choose-autthenctic-miz.png)
-*Figure 4.1.6: Configuring Mixed Mode Authentication.*
-
----
-
-#### Step 7: Complete Installation
-Review the installation progress until all components display a status of **Succeeded**.
-
-![Step 7: Installation Success](ss/7-instalasi-success.png)
-*Figure 4.1.7: Successful completion of SQL Server installation.*
-
----
-
-### 4.2 Verifying Services, Instances, and Ports
-
-#### Step 8: Verify SQL Server and SQL Server Agent Services
-Open **Services** (`services.msc`) or **SQL Server Configuration Manager**. Verify that:
-- **SQL Server (Instance Name)** is running.
-- **SQL Server Agent (Instance Name)** is running and set to Automatic startup.
-
-![Step 8: Verify Running Services](ss/8-service-cek-2-insta-sqlserve-running.png)
-*Figure 4.2.1: Verifying active SQL Server and Agent services across instances.*
+![Penyelarasan Endpoint untuk Mengatasi Error 1418](ss/30-primary-set-mirror-to-slave-troubleshoot-if-name-host-not-registerd-in-endpoint.png)
 
 ---
 
-#### Step 9: Check Publisher TCP/IP Port
-In SQL Server Configuration Manager, check the TCP/IP protocol properties under **SQL Server Network Configuration** for the Publisher instance to identify its active listening port.
+## 6. Kesimpulan dan Best Practices
+
+1. **Efektivitas Ketersediaan Tinggi**: Database Mirroring merupakan solusi yang andal untuk perlindungan data per basis data tanpa memerlukan investasi perangkat keras *shared storage*.
+2. **Koneksi Transparan Klien**: Aplikasi dapat melakukan failover otomatis tanpa perubahan konfigurasi manual apabila menyertakan parameter `Failover Partner` pada *connection string*:
+   ```
+   Server=Dendie,1433;Failover Partner=Dendie,1434;Database=LatihanDB;User Id=sa;Password=YourPassword;
+   ```
+3. **Pemanfaatan Database Snapshot**: Untuk kebutuhan pelaporan (*read-only reporting / ETL extraction*) tanpa membebani server utama, administrator dapat membuat snapshot berkala pada server Mirror.
+4. **Strategi Pemeliharaan Berkala**: Lakukan perawatan rutin pada *transaction log* (log backup berkala) agar ukuran file LDF tetap terkendali dan tidak memenuhi kapasitas disk penyimpanan.
 
-![Step 9: Publisher TCP Port](ss/9-sqlserver-cek-port-node-publisher.png)
-*Figure 4.2.2: Checking TCP/IP port assignment for the Publisher node.*
-
----
-
-#### Step 10: Check Distributor TCP/IP Port
-Verify the TCP/IP listening port configuration for the Distributor instance to ensure network reachability.
-
-![Step 10: Distributor TCP Port](ss/10-sqlserver-cek-port-node-distribrutor.png)
-*Figure 4.2.3: Checking TCP/IP port configuration for the Distributor node.*
-
----
-
-#### Step 11: Connect Instances in SQL Server Management Studio (SSMS)
-Open SSMS and establish connections to both the Master/Publisher instance and the Slave/Subscriber instance. Confirm both connections are active.
-
-![Step 11: Active SSMS Connections](ss/11-sqlserver-connection-node-master-slave-running.png)
-*Figure 4.2.4: Connected Publisher and Subscriber instances in SSMS Object Explorer.*
-
----
-
-### 4.3 Configuring the Distributor Node
-
-#### Step 12: Launch Configure Distribution Wizard
-In Object Explorer, expand the instance acting as the Distributor, right-click the **Replication** folder, and select **Configure Distribution...**.
-
-![Step 12: Configure Distribution](ss/12-sqlserver-set-node-distribution.png)
-*Figure 4.3.1: Starting the Configure Distribution Wizard.*
-
----
-
-#### Step 13: Define Snapshot Folder
-Set the distribution database name (`distribution`) and specify the network or local path for the **Snapshot Folder** where snapshot data files will be stored.
-
-![Step 13: Snapshot Folder Configuration](ss/13-sqlserver-set-node-distribution-2.png)
-*Figure 4.3.2: Specifying the Snapshot folder location.*
-
----
-
-#### Step 14: Finalize Distribution Configuration
-Review the configuration summary, select **Configure distribution**, and click **Finish** to initialize the distributor database and services.
-
-![Step 14: Finalize Distribution](ss/14-sqlserver-set-node-distribution-3.png)
-*Figure 4.3.3: Successfully configuring the Distribution node.*
-
----
-
-### 4.4 Creating the Publication on the Publisher
-
-#### Step 15: Identify the Source Database
-Verify the database on the Publisher that contains the tables, records, and schema to be replicated.
-
-![Step 15: Identify Source Database](ss/15-sqlserver-database-yg-akan-di-publisher.png)
-*Figure 4.4.1: Checking source database and schema on the Publisher.*
-
----
-
-#### Step 16: Verify Server Name Metadata on Publisher
-Execute `SELECT @@SERVERNAME;` on the Publisher to confirm that internal SQL Server metadata matches the physical/network hostname.
-
-![Step 16: Verify @@SERVERNAME](ss/16-sqlserver-database-cek-name-server-sqlserver-publisher.png)
-*Figure 4.4.2: Verifying Publisher @@SERVERNAME output.*
-
----
-
-#### Step 17: Launch New Publication Wizard
-Under the **Replication** folder on the Publisher instance, right-click **Local Publications** and select **New Publication...**.
-
-![Step 17: New Publication Wizard](ss/17-sqlserver-sqlserver-create-publisher-di-node-distrubutora.png)
-*Figure 4.4.3: Launching the New Publication Wizard.*
-
----
-
-#### Step 18: Select the Publication Database
-Choose the database that contains the tables and data you want to publish.
-
-![Step 18: Select Database](ss/18-sqlserver-sqlserver-create-publisher-pilih-database.png)
-*Figure 4.4.4: Choosing the database to replicate.*
-
----
-
-#### Step 19: Choose Publication Type (Transactional Publication)
-Select **Transactional publication**. This ensures that data modifications (inserts, updates, deletes) are propagated to subscribers near real-time.
-
-![Step 19: Choose Transactional Publication](ss/19-sqlserver-sqlserver-create-publisher-set-type-transaction-di-node-distributor.png)
-*Figure 4.4.5: Selecting Transactional publication.*
-
----
-
-#### Step 20: Select Articles (Tables and Objects)
-In the **Articles** window, check the tables you wish to replicate.
-
-> **Note**: For Transactional Replication, tables must have a **Primary Key** defined.
-
-![Step 20: Select Articles](ss/20-sqlserver-sqlserver-create-publisher-set-pilih-table-di-node-distributor.png)
-*Figure 4.4.6: Selecting tables (articles) for replication.*
-
----
-
-#### Step 21: Filter Table Rows (Optional)
-If you only need a subset of rows (e.g., rows where `Region = 'North'`), add filter clauses here. Otherwise, leave blank to replicate full tables.
-
-![Step 21: Filter Rows](ss/22-sqlserver-sqlserver-create-publisher-set-pilih-filter-data-di-node-distributor.png)
-*Figure 4.4.7: Configuring row filtering (or leaving full dataset).*
-
----
-
-#### Step 22: Configure Snapshot Agent Schedule and Name
-Schedule when the Snapshot Agent will generate the initial snapshot (or set it to create immediately). Provide a descriptive name for the publication.
-
-![Step 22: Publication Name and Snapshot](ss/23-sqlserver-sqlserver-create-publisher-set-name-publisher-di-node-distributor.png)
-*Figure 4.4.8: Setting the publication name and snapshot schedule.*
-
----
-
-#### Step 23: Complete Publication Creation
-Click **Finish** to initiate the publication creation process. The wizard creates the publication, activates the articles, and starts the Log Reader Agent.
-
-![Step 23: Creation Progress](ss/24-sqlserver-sqlserver-create-publisher-success-di-node-distributora.png)
-*Figure 4.4.9: Publication creation progress and summary.*
-
----
-
-#### Step 24: Verify Created Publication in SSMS
-Expand **Replication** > **Local Publications** to verify that your new publication is listed and active.
-
-![Step 24: Publication Created](ss/25-sqlserver-sqlserver-create-publisher-success-di-node-distributora.png)
-*Figure 4.4.10: Active publication listed under Local Publications.*
-
----
-
-### 4.5 Configuring the Subscriber and Subscriptions
-
-#### Step 25: Launch New Subscription Wizard
-Right-click your newly created publication and select **New Subscriptions...**.
-
-![Step 25: Launch New Subscription](ss/26.create-subscribe-from-node-distributor.png)
-*Figure 4.5.1: Starting the New Subscription Wizard.*
-
----
-
-#### Step 26: Select Publication for Subscription
-Confirm that the correct publication is selected from the list.
-
-![Step 26: Select Publication](ss/27-subscribe-from-node-distributor-2.png)
-*Figure 4.5.2: Selecting the target publication.*
-
----
-
-#### Step 27: Select Distribution Agent Location (Push vs. Pull)
-Choose between:
-- **Push subscription** (Run all agents at the Distributor).
-- **Pull subscription** (Run each agent at its Subscriber).
-
-![Step 27: Push or Pull Selection](ss/28-subscribe-from-node-distributor-3.png)
-*Figure 4.5.3: Selecting Push or Pull subscription model.*
-
----
-
-#### Step 28: Add Subscriber Instance and Target Database
-Click **Add Subscriber** to browse and connect to the Subscriber instance. Select or create the destination subscription database.
-
-![Step 28: Add Subscriber and Database](ss/29-subscribe-from-node-distributor-4.png)
-*Figure 4.5.4: Assigning subscriber instance and subscription database.*
-
----
-
-#### Step 29: Configure Distribution Agent Security
-Set the security account used by the Distribution Agent process. You can use the SQL Server Agent service account or a dedicated Windows domain/local account.
-
-![Step 29: Agent Security](ss/30-subscribe-from-node-distributor-5.png)
-*Figure 4.5.5: Configuring process and connection credentials.*
-
----
-
-#### Step 30: Set Synchronization Schedule
-Select **Run continuously** so changes made on the Publisher are replicated immediately to the Subscriber.
-
-![Step 30: Sync Schedule](ss/31-subscribe-from-node-distributor-6.png)
-*Figure 4.5.6: Configuring synchronization schedule.*
-
----
-
-#### Step 31: Initialize Subscription
-Check **Initialize Immediately** and set the start condition to **At first synchronization**. This tells the agent to apply the snapshot as soon as the subscription is created.
-
-![Step 31: Initialize Subscription](ss/32-subscribe-from-node-distributor-7.png)
-*Figure 4.5.7: Initializing subscription with snapshot.*
-
----
-
-#### Step 32: Choose Wizard Actions
-Select **Create the subscription(s)** (and optionally generate a script for backup purposes).
-
-![Step 32: Wizard Action](ss/33-subscribe-from-node-distributor-8.png)
-*Figure 4.5.8: Choosing wizard execution action.*
-
----
-
-#### Step 33: Review Summary and Execute
-Review all configured settings in the summary screen and click **Finish**.
-
-![Step 33: Summary and Execution](ss/34-master-create-subscribe-for-slave-9.png)
-*Figure 4.5.9: Subscription creation summary.*
-
----
-
-#### Step 34: Subscription Successfully Created
-The wizard confirms that the subscription has been successfully registered and initialized.
-
-![Step 34: Subscription Success](ss/35-master-create-subscribe-for-slave-10.png)
-*Figure 4.5.10: Confirmation of successful subscription creation.*
-
----
-
-### 4.6 Verifying Replication Status and Synchronized Data
-
-#### Step 35: Launch Replication Monitor
-Right-click the **Replication** folder in SSMS and select **Launch Replication Monitor**.
-
-![Step 35: Launch Replication Monitor](ss/36-sqlserver-cek-replikasi-running-di-node-distributer.png)
-*Figure 4.6.1: Opening Replication Monitor.*
-
----
-
-#### Step 36: Monitor Replication Health and Agents
-In Replication Monitor:
-- Verify that **Log Reader Agent** is running with status `Running`.
-- Verify that **Distribution Agent** has delivered the snapshot and is continuously synchronizing.
-- Check latency metrics and error logs if any warnings appear.
-
-![Step 36: Replication Health Status](ss/37-sqlserver-cek-replikasi-running-di-node-distributer.png)
-*Figure 4.6.2: Verifying agent statuses and synchronization in Replication Monitor.*
-
----
-
-#### Step 37: Verify Subscriber Authentication and Connection
-Switch connection context to the Subscriber instance. Verify connection credentials and access rights to the subscription database.
-
-![Step 37: Subscriber Authentication](ss/38-node-subsriver-cek-authentification.png)
-*Figure 4.6.3: Validating login and permissions on Subscriber.*
-
----
-
-#### Step 38: Verify Database Objects on Subscriber
-Inspect the subscription database in SSMS Object Explorer. Verify that all published tables, constraints, and indexes have been created.
-
-![Step 38: Subscriber Database Objects](ss/39-node-subsriver-cek-authentification-2.png)
-*Figure 4.6.4: Replicated tables appearing in Subscriber database.*
-
----
-
-#### Step 39: Query Data on Subscriber Node
-Execute `SELECT` queries on the replicated tables on the Subscriber to verify initial snapshot population.
-
-![Step 39: Query Subscriber Data](ss/40-node-subsriver-cek-authentification-3.png)
-*Figure 4.6.5: Querying replicated records on Subscriber.*
-
----
-
-#### Step 40: Test Live Data Synchronization
-Insert a new record or update an existing row on the Publisher database. Query the same table on the Subscriber to ensure the change is replicated within seconds.
-
-![Step 40: Live Data Verification](ss/41-node-subsriver-cek-authentification-4.png)
-*Figure 4.6.6: Validating real-time row synchronization.*
-
----
-
-#### Step 41: End-to-End Replication Confirmation
-Review table row counts and ensure both Publisher and Subscriber are fully synchronized and healthy.
-
-![Step 41: End-to-End Success](ss/42-node-subsriver-cek-authentification-5.png)
-*Figure 4.6.7: Final verification of healthy end-to-end replication.*
-
----
-
-## 5. Monitoring and Best Practices
-
-### 5.1 Using Replication Monitor
-
-**SQL Server Replication Monitor** is the primary tool for ongoing administrative tasks:
-- **Agent Status**: Quick visual indicators (Green checkmark, yellow warning, red error).
-- **Undelivered Commands**: Shows transaction backlog in the distribution queue waiting to be delivered.
-- **Latency Monitoring**: Measures how long it takes for a committed transaction on the Publisher to be applied on the Subscriber.
-- **Tracer Tokens**: Insert a tracer token into the transaction log from Replication Monitor to measure exact latency across all replication legs.
-
----
-
-### 5.2 Operational Best Practices
-
-1. **Keep SQL Server Agent Running**:
-   - Replication agents run as SQL Server Agent jobs. Ensure the agent service is set to start automatically on system reboot.
-2. **Proper Sizing for Distribution Database**:
-   - Set an appropriate retention period for distribution transactions (default is 72 hours). Avoid letting the `distribution` database grow uncontrollably.
-3. **Dedicated Network and Disk for High-Throughput Scenarios**:
-   - If transaction volume is very high, place the Distributor on a separate server to avoid CPU and disk I/O contention on the production Publisher.
-4. **Primary Key Requirement**:
-   - Every table participating in Transactional Replication must have a primary key. Plan table designs accordingly.
-5. **Monitor Transaction Log Growth on Publisher**:
-   - Transactions cannot be truncated from the Publisher's log until the Log Reader Agent has read them into the distribution database. If the Log Reader stops, the transaction log will grow.
